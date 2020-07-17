@@ -1,0 +1,189 @@
+import pandas as pd
+import math
+import numpy as np
+
+
+###get data###
+
+data=pd.read_csv('dataset3fvt_bigram_mincolcount20.csv')
+
+
+## get the feature importance
+
+
+original_features = data
+
+
+# Use numpy to convert to arrays
+import numpy as np
+from sklearn.preprocessing import MinMaxScaler
+
+
+# Labels are the values we want to predict
+original_labels = np.array(original_features['class'])
+
+# Remove the labels from the features
+# axis 1 refers to the columns
+original_features= original_features.drop('class', axis = 1)
+
+# Saving feature names for later use
+original_feature_list = list(original_features.columns)
+
+# Convert to numpy array
+original_features = np.array(original_features)
+
+'''
+##normalize##
+
+scaler = MinMaxScaler()
+scaler.fit(original_features)
+MinMaxScaler(copy=True, feature_range=(0, 1))
+
+original_features = scaler.transform(original_features)
+
+'''
+
+
+
+from sklearn import feature_selection
+from sklearn.feature_selection import chi2
+
+importances=chi2(original_features,original_labels)[0]
+
+feature_importances = [(feature, round(importance, 2)) for feature, importance in zip(original_feature_list, importances)]
+
+# Sort the feature importances by most important first
+feature_importances_sorted = sorted(feature_importances, key = lambda x: x[1], reverse = True)
+
+
+
+#####DONE##########################3
+
+
+
+#tfidf-we should never use normalized data?
+
+
+def tf_idf(df):
+    
+    idf_list = []
+    for col in list(df.columns):
+        #total_count = df[col].nonzero()[0][1]
+        total_count = (df[col] != 0).sum()
+        idf = math.log10(len(df) / total_count)
+        #print(idf,total_count)
+        idf_list.append(round(idf, 3))
+        
+    for row in range(len(df)):
+        total_doc_words = sum(df.iloc[row].values)
+        for col in range(len(df.columns)):
+            tf = df.iloc[row, col] / total_doc_words
+            df.iloc[row, col] = tf * idf_list[col]    
+  
+    df_round=df.round(3)  ###experiment with this
+    return df_round
+
+
+################################################################################
+
+
+###generate tf-idf score for data without the class this created problems with the round off thing so its better to generate without the 'class' column
+
+
+
+data_class=data['class']
+
+data_noclass=data.drop(['class'], axis=1)
+
+data_tfidf = tf_idf(data_noclass)
+
+data_tfidf['class'] = data_class  ##combining again to get class column for malign and benign partition 
+
+malign=data_tfidf[data_tfidf['class']!=0]
+
+malign_noclass=malign.drop(['class'], axis=1)
+
+malign_noclass=malign_noclass.reset_index(drop=True)
+
+malign_new = malign_noclass.loc[:, (malign_noclass != 0).any(axis=0)]
+
+df_tfidf=malign_new
+
+names=list(df_tfidf.columns)
+
+updated_feature_importances=[] ###some zero columns might be there
+
+
+for i in feature_importances:
+    if i[0] in names:
+        updated_feature_importances.append(i)
+        
+    
+
+
+def feature_space_creation(df,n):
+    
+    d = { a:b for a,b in n}
+    weights = [d[i] for i in df.columns]
+    df = df*weights
+    b = np.argsort(df.values,axis=1)
+    b = b[:,-3:]
+    #print(b)
+    
+    c =b.reshape(-1)
+    _, idx = np.unique(c, return_index=True)
+    d = c[np.sort(idx)]
+    #print(list(df.columns[d].values))
+    l=list(df.columns[d].values)
+    
+    return l
+    
+    
+    
+    
+l_final=feature_space_creation(df_tfidf,updated_feature_importances)
+
+
+
+remove_names=[]
+for i in names:
+    if i not in l_final:
+        remove_names.append(i)
+        
+
+
+df_tfidf.drop(remove_names, inplace=True, axis=1, errors='ignore')
+
+
+
+df_tfidf['class'] = 1
+
+
+###now merging benign with malign
+
+benign=data_tfidf[data_tfidf['class']==0]
+
+benign_names=list(benign.columns)
+
+remove_names_benign=[]
+
+for i in benign_names:
+    if i not in l_final:
+        remove_names_benign.append(i)
+        
+
+
+benign.drop(remove_names_benign, inplace=True, axis=1, errors='ignore')
+
+benign_new1 = benign.reset_index(drop=True)
+
+benign_new1['class'] = 0
+
+result = benign_new1.append(df_tfidf, sort=False)
+
+result2=result.fillna(0)
+
+result3 = result2.reset_index(drop=True)
+
+result3.to_csv("final_result_chi23.csv")
+
